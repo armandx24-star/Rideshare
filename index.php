@@ -1,187 +1,135 @@
 <?php
-require_once '../includes/config.php';
-require_once '../includes/db.php';
-require_once '../includes/functions.php';
 
-$pageTitle = 'Dashboard — Admin';
-include 'includes/sidebar.php';
-
-$db = getDB();
-
-$stats = $db->query("
-    SELECT
-        (SELECT COUNT(*) FROM users) AS total_users,
-        (SELECT COUNT(*) FROM drivers) AS total_drivers,
-        (SELECT COUNT(*) FROM drivers WHERE status='approved') AS approved_drivers,
-        (SELECT COUNT(*) FROM drivers WHERE status='pending') AS pending_drivers,
-        (SELECT COUNT(*) FROM rides) AS total_rides,
-        (SELECT COUNT(*) FROM rides WHERE status='completed') AS completed_rides,
-        (SELECT COUNT(*) FROM rides WHERE status='pending') AS pending_rides,
-        (SELECT COALESCE(SUM(fare),0) FROM rides WHERE status='completed') AS total_revenue
-")->fetch();
-
-$chartData = $db->query("
-    SELECT DATE(created_at) AS day, COUNT(*) AS rides, SUM(fare) AS revenue
-    FROM rides WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
-    GROUP BY DATE(created_at)
-    ORDER BY day ASC
-")->fetchAll();
-
-$chartLabels  = [];
-$chartRides   = [];
-$chartRevenue = [];
-for ($i = 6; $i >= 0; $i--) {
-    $d = date('Y-m-d', strtotime("-$i days"));
-    $chartLabels[] = date('D d', strtotime($d));
-    $found = array_values(array_filter($chartData, fn($r) => $r['day'] === $d));
-    $chartRides[]   = $found ? $found[0]['rides']   : 0;
-    $chartRevenue[] = $found ? $found[0]['revenue']  : 0;
-}
-
-$recent = $db->query("
-    SELECT r.*, u.name AS user_name, d.name AS driver_name
-    FROM rides r
-    LEFT JOIN users u ON r.user_id=u.id
-    LEFT JOIN drivers d ON r.driver_id=d.id
-    ORDER BY r.created_at DESC LIMIT 8
-")->fetchAll();
+require_once 'includes/config.php';
+require_once 'includes/auth.php';
+redirectIfLoggedIn();
+$pageTitle = 'RideShare — Book Rides Instantly';
+include 'includes/header.php';
 ?>
-<div class="container-fluid py-4 px-4">
-  <div class="page-header">
-    <h2>📊 Dashboard</h2>
-    <p>Overview of the entire RideShare platform</p>
-  </div>
 
-  <div class="row g-3 mb-4">
-    <div class="col-6 col-xl-3">
-      <div class="stat-card stat-blue">
-        <div class="stat-icon">👤</div>
-        <div class="stat-value"><?php echo $stats['total_users']; ?></div>
-        <div class="stat-label">Total Users</div>
-      </div>
-    </div>
-    <div class="col-6 col-xl-3">
-      <div class="stat-card stat-green">
-        <div class="stat-icon">🚗</div>
-        <div class="stat-value"><?php echo $stats['total_drivers']; ?></div>
-        <div class="stat-label">Total Drivers
-          <?php if ($stats['pending_drivers']): ?>
-            <span class="badge badge-pending ms-1"><?php echo $stats['pending_drivers']; ?> pending</span>
-          <?php endif; ?>
+<!-- Hero Section -->
+<section class="hero">
+  <div class="container">
+    <div class="row align-items-center g-5">
+      <div class="col-lg-6">
+        <div class="badge mb-3" style="background:rgba(0,200,83,0.15);color:#00C853;border:1px solid rgba(0,200,83,0.3);padding:8px 16px;border-radius:20px;font-size:0.8rem;font-weight:600;">
+          🚀 Fast &amp; Reliable Rides
+        </div>
+        <h1>Your City,<br><span>Your Ride.</span></h1>
+        <p class="mt-4 mb-5">Book a ride in seconds. Choose from Bike, Mini, or Sedan. Safe drivers, transparent pricing, zero hidden fees.</p>
+        <div class="d-flex gap-3 flex-wrap">
+          <a href="register.php" class="btn btn-primary btn-lg">🚗 Book a Ride</a>
+          <a href="register.php?tab=driver" class="btn btn-outline-primary btn-lg">Become a Driver</a>
+        </div>
+        <div class="mt-5 d-flex gap-4 flex-wrap" style="color:#9E9E9E;font-size:0.9rem">
+          <span>✅ No OTP Required</span>
+          <span>✅ Real-time Tracking</span>
+          <span>✅ Safe &amp; Secure</span>
         </div>
       </div>
-    </div>
-    <div class="col-6 col-xl-3">
-      <div class="stat-card stat-yellow">
-        <div class="stat-icon">🗺️</div>
-        <div class="stat-value"><?php echo $stats['total_rides']; ?></div>
-        <div class="stat-label">Total Rides</div>
-      </div>
-    </div>
-    <div class="col-6 col-xl-3">
-      <div class="stat-card stat-red">
-        <div class="stat-icon">💰</div>
-        <div class="stat-value"><?php echo formatCurrency($stats['total_revenue']); ?></div>
-        <div class="stat-label">Total Revenue</div>
+      <div class="col-lg-6 text-center d-none d-lg-block">
+        <div class="hero-car">🚕</div>
       </div>
     </div>
   </div>
+</section>
 
-  <div class="row g-3 mb-4">
-    <div class="col-4">
-      <div class="card text-center p-3">
-        <div style="font-size:1.6rem;font-weight:800;color:#00C853"><?php echo $stats['completed_rides']; ?></div>
-        <div style="font-size:0.8rem;color:#9E9E9E">Completed Rides</div>
-      </div>
-    </div>
-    <div class="col-4">
-      <div class="card text-center p-3">
-        <div style="font-size:1.6rem;font-weight:800;color:#F7C948"><?php echo $stats['pending_rides']; ?></div>
-        <div style="font-size:0.8rem;color:#9E9E9E">Pending Rides</div>
-      </div>
-    </div>
-    <div class="col-4">
-      <div class="card text-center p-3">
-        <div style="font-size:1.6rem;font-weight:800;color:#2196F3"><?php echo $stats['approved_drivers']; ?></div>
-        <div style="font-size:0.8rem;color:#9E9E9E">Active Drivers</div>
-      </div>
+<!-- Stats Section -->
+<section class="py-5" style="background:rgba(255,255,255,0.02);border-top:1px solid rgba(255,255,255,0.06);border-bottom:1px solid rgba(255,255,255,0.06);">
+  <div class="container">
+    <div class="row text-center g-4">
+      <?php
+      $stats = [
+          ['5K+', 'Happy Riders', '😊'],
+          ['500+', 'Active Drivers', '🚗'],
+          ['20K+', 'Rides Completed', '✅'],
+          ['4.8★', 'Average Rating', '⭐'],
+      ];
+      foreach ($stats as $s) {
+          echo "<div class='col-6 col-md-3'>
+            <div class='stat-value' style='font-size:2rem;font-weight:800;color:#00C853'>{$s[2]} {$s[0]}</div>
+            <div style='color:#9E9E9E;font-size:0.85rem;margin-top:4px'>{$s[1]}</div>
+          </div>";
+      }
+      ?>
     </div>
   </div>
+</section>
 
-  <div class="card mb-4">
-    <div class="card-header">📈 Last 7 Days — Rides &amp; Revenue</div>
-    <div class="card-body">
-      <canvas id="dashChart" height="90"></canvas>
+<!-- Features Section -->
+<section class="py-5 mt-4">
+  <div class="container">
+    <div class="text-center mb-5">
+      <h2 style="font-size:2rem;font-weight:800">Why Choose <span style="color:#00C853">RideShare?</span></h2>
+      <p style="color:#9E9E9E">Everything you need for a great ride experience</p>
+    </div>
+    <div class="row g-4">
+      <?php
+      $features = [
+          ['🗺️','Live Map Tracking','Watch your ride in real-time on an interactive map powered by OpenStreetMap.'],
+          ['💰','Transparent Fares','See exact fare before you book. No surge pricing surprises ever.'],
+          ['⚡','Instant Booking','Book in under 30 seconds. Get matched with a nearby driver immediately.'],
+          ['🛡️','Safe &amp; Secure','All drivers are verified and approved by our admin team before going live.'],
+          ['🚴','Vehicle Choice','Choose from Bike, Mini Car, or Sedan based on your needs and budget.'],
+          ['📊','Ride History','Track all your rides with full details, fare breakdown, and ratings.'],
+      ];
+      foreach ($features as $f) {
+          echo "<div class='col-md-6 col-lg-4'>
+            <div class='feature-card h-100'>
+              <div class='icon'>{$f[0]}</div>
+              <h4>{$f[1]}</h4>
+              <p>{$f[2]}</p>
+            </div>
+          </div>";
+      }
+      ?>
     </div>
   </div>
+</section>
 
-  <div class="card">
-    <div class="card-header">
-      🕐 Recent Rides
-      <a href="rides.php" class="btn btn-sm btn-secondary ms-auto">View All →</a>
+<!-- Vehicle Types -->
+<section class="py-5" style="background:rgba(255,255,255,0.02)">
+  <div class="container">
+    <div class="text-center mb-5">
+      <h2 style="font-size:2rem;font-weight:800">Choose Your <span style="color:#00C853">Ride Type</span></h2>
     </div>
-    <div class="card-body p-0">
-      <table class="table-dark-custom w-100">
-        <thead>
-          <tr><th>#</th><th>User</th><th>Driver</th><th>Type</th><th>Distance</th><th>Fare</th><th>Status</th><th>Date</th></tr>
-        </thead>
-        <tbody>
-          <?php foreach ($recent as $r): ?>
-          <tr>
-            <td><small>#<?php echo $r['id']; ?></small></td>
-            <td><?php echo htmlspecialchars($r['user_name'] ?? '—'); ?></td>
-            <td><?php echo htmlspecialchars($r['driver_name'] ?? '—'); ?></td>
-            <td><?php echo ucfirst($r['vehicle_type']); ?></td>
-            <td><?php echo $r['distance']; ?> km</td>
-            <td class="text-primary fw-bold"><?php echo formatCurrency($r['fare']); ?></td>
-            <td><?php echo statusBadge($r['status']); ?></td>
-            <td><small><?php echo date('d M, h:i A', strtotime($r['created_at'])); ?></small></td>
-          </tr>
-          <?php endforeach; ?>
-        </tbody>
-      </table>
+    <div class="row g-4 justify-content-center">
+      <?php
+      $vehicles = [
+          ['🏍️','Bike','₹30 base + ₹7/km','Fastest for short trips'],
+          ['🚗','Mini','₹50 base + ₹10/km','Comfortable 4-seater'],
+          ['🚙','Sedan','₹80 base + ₹14/km','Premium experience'],
+      ];
+      foreach ($vehicles as $v) {
+          echo "<div class='col-md-4'>
+            <div class='feature-card h-100'>
+              <div class='icon'>{$v[0]}</div>
+              <h4>{$v[1]}</h4>
+              <p style='color:#00C853;font-weight:700;font-size:1.1rem'>{$v[2]}</p>
+              <p>{$v[3]}</p>
+            </div>
+          </div>";
+      }
+      ?>
     </div>
   </div>
-</div>
+</section>
 
-<script>
-new Chart(document.getElementById('dashChart'), {
-    data: {
-        labels: <?php echo json_encode($chartLabels); ?>,
-        datasets: [
-            {
-                type: 'bar',
-                label: 'Rides',
-                data: <?php echo json_encode($chartRides); ?>,
-                backgroundColor: 'rgba(33,150,243,0.25)',
-                borderColor: '#2196F3',
-                borderWidth: 2,
-                borderRadius: 6,
-                yAxisID: 'y'
-            },
-            {
-                type: 'line',
-                label: 'Revenue (₹)',
-                data: <?php echo json_encode($chartRevenue); ?>,
-                borderColor: '#00C853',
-                backgroundColor: 'rgba(0,200,83,0.1)',
-                borderWidth: 2,
-                tension: 0.4,
-                fill: true,
-                yAxisID: 'y1'
-            }
-        ]
-    },
-    options: {
-        responsive: true,
-        plugins: { legend: { labels: { color: '#f5f5f5' } } },
-        scales: {
-            x:  { ticks: { color: '#9E9E9E' }, grid: { color: 'rgba(255,255,255,0.05)' } },
-            y:  { type: 'linear', position: 'left',  ticks: { color: '#2196F3' }, grid: { color: 'rgba(255,255,255,0.05)' }, beginAtZero: true },
-            y1: { type: 'linear', position: 'right', ticks: { color: '#00C853', callback: v => '₹'+v }, grid: { drawOnChartArea: false }, beginAtZero: true }
-        }
-    }
-});
-</script>
+<!-- CTA Section -->
+<section class="py-5">
+  <div class="container text-center">
+    <div class="card" style="padding:60px;background:linear-gradient(135deg,#0D1F0D,#1A1A2E)">
+      <h2 style="font-size:2.5rem;font-weight:800">Ready to <span style="color:#00C853">Ride?</span></h2>
+      <p style="color:#9E9E9E;margin:16px auto;max-width:500px">Join thousands of satisfied riders. Create your account and book your first ride in minutes.</p>
+      <div class="d-flex gap-3 justify-content-center flex-wrap mt-4">
+        <a href="register.php" class="btn btn-primary btn-lg">Create Account</a>
+        <a href="login.php"    class="btn btn-secondary btn-lg">Login</a>
+      </div>
+      <p class="mt-4" style="color:#9E9E9E;font-size:0.85rem">
+        Are you a driver? <a href="register.php?tab=driver" style="color:#00C853">Register as Driver →</a>
+      </p>
+    </div>
+  </div>
+</section>
 
 <?php include 'includes/footer.php'; ?>
